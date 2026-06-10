@@ -30,6 +30,12 @@ variable "global_access" {
   default     = false
 }
 
+variable "load_balancing_scheme" {
+  description = "Optional: The load balancing scheme to use for the load balancer. Must be one of `INTENRAL` or `INTERNAL_MANAGED`."
+  default     = "INTERNAL"
+  type        = string
+}
+
 variable "network" {
   description = "Name of the network to create resources in."
   type        = string

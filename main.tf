@@ -66,7 +66,7 @@ resource "google_compute_forwarding_rule" "default" {
   network                = data.google_compute_network.network.self_link
   subnetwork             = local.final_subnetwork
   allow_global_access    = var.global_access
-  load_balancing_scheme  = "INTERNAL"
+  load_balancing_scheme  = var.load_balancing_scheme
   is_mirroring_collector = var.is_mirroring_collector
   backend_service        = google_compute_region_backend_service.default.self_link
   ip_address             = var.ip_address
@@ -89,6 +89,7 @@ resource "google_compute_region_backend_service" "default" {
   network                         = data.google_compute_network.network.self_link
   connection_draining_timeout_sec = var.connection_draining_timeout_sec
   session_affinity                = var.session_affinity
+  load_balancing_scheme           = var.load_balancing_scheme
 
   dynamic "backend" {
     for_each = var.backends
@@ -99,12 +100,12 @@ resource "google_compute_region_backend_service" "default" {
       balancing_mode = lookup(backend.value, "balancing_mode", "CONNECTION")
     }
   }
-  health_checks = concat(google_compute_health_check.tcp[*].self_link, google_compute_health_check.http[*].self_link, google_compute_health_check.https[*].self_link)
+  health_checks = var.load_balancing_scheme == "INTERNAL" ? concat(google_compute_health_check.tcp[*].self_link, google_compute_health_check.http[*].self_link, google_compute_health_check.https[*].self_link) : concat(google_compute_region_health_check.tcp[*].self_link, google_compute_region_health_check.http[*].self_link, google_compute_region_health_check.https[*].self_link)
 }
 
 resource "google_compute_health_check" "tcp" {
   provider = google-beta
-  count    = var.health_check["type"] == "tcp" ? 1 : 0
+  count    = var.health_check["type"] == "tcp" && var.load_balancing_scheme == "INTERNAL" ? 1 : 0
   project  = var.project_id
   name     = "${var.name}-hc-tcp"
 
@@ -131,7 +132,7 @@ resource "google_compute_health_check" "tcp" {
 
 resource "google_compute_health_check" "http" {
   provider = google-beta
-  count    = var.health_check["type"] == "http" ? 1 : 0
+  count    = var.health_check["type"] == "http" && var.load_balancing_scheme == "INTERNAL" ? 1 : 0
   project  = var.project_id
   name     = "${var.name}-hc-http"
 
@@ -159,9 +160,96 @@ resource "google_compute_health_check" "http" {
 
 resource "google_compute_health_check" "https" {
   provider = google-beta
-  count    = var.health_check["type"] == "https" ? 1 : 0
+  count    = var.health_check["type"] == "https" && var.load_balancing_scheme == "INTERNAL" ? 1 : 0
   project  = var.project_id
   name     = "${var.name}-hc-https"
+
+  timeout_sec         = var.health_check["timeout_sec"]
+  check_interval_sec  = var.health_check["check_interval_sec"]
+  healthy_threshold   = var.health_check["healthy_threshold"]
+  unhealthy_threshold = var.health_check["unhealthy_threshold"]
+
+  https_health_check {
+    port         = var.health_check["port"]
+    request_path = var.health_check["request_path"]
+    host         = var.health_check["host"]
+    response     = var.health_check["response"]
+    port_name    = var.health_check["port_name"]
+    proxy_header = var.health_check["proxy_header"]
+  }
+
+  dynamic "log_config" {
+    for_each = var.health_check["enable_log"] ? [true] : []
+    content {
+      enable = true
+    }
+  }
+}
+
+resource "google_compute_region_health_check" "tcp" {
+  provider = google-beta
+  count    = var.health_check["type"] == "tcp" && var.load_balancing_scheme == "INTERNAL_MANAGED" ? 1 : 0
+  project  = var.project_id
+  name     = "${var.name}-hc-tcp"
+  region   = var.region
+
+  timeout_sec         = var.health_check["timeout_sec"]
+  check_interval_sec  = var.health_check["check_interval_sec"]
+  healthy_threshold   = var.health_check["healthy_threshold"]
+  unhealthy_threshold = var.health_check["unhealthy_threshold"]
+
+  tcp_health_check {
+    port         = var.health_check["port"]
+    request      = var.health_check["request"]
+    response     = var.health_check["response"]
+    port_name    = var.health_check["port_name"]
+    proxy_header = var.health_check["proxy_header"]
+  }
+
+  dynamic "log_config" {
+    for_each = var.health_check["enable_log"] ? [true] : []
+    content {
+      enable = true
+    }
+  }
+}
+
+resource "google_compute_region_health_check" "http" {
+  provider = google-beta
+  count    = var.health_check["type"] == "http" && var.load_balancing_scheme == "INTERNAL_MANAGED" ? 1 : 0
+  project  = var.project_id
+  name     = "${var.name}-hc-http"
+  region   = var.region
+
+  timeout_sec         = var.health_check["timeout_sec"]
+  check_interval_sec  = var.health_check["check_interval_sec"]
+  healthy_threshold   = var.health_check["healthy_threshold"]
+  unhealthy_threshold = var.health_check["unhealthy_threshold"]
+
+  http_health_check {
+    port         = var.health_check["port"]
+    request_path = var.health_check["request_path"]
+    host         = var.health_check["host"]
+    response     = var.health_check["response"]
+    port_name    = var.health_check["port_name"]
+    proxy_header = var.health_check["proxy_header"]
+  }
+
+  dynamic "log_config" {
+    for_each = var.health_check["enable_log"] ? [true] : []
+    content {
+      enable = true
+    }
+  }
+}
+
+resource "google_compute_region_health_check" "https" {
+  provider = google-beta
+  count    = var.health_check["type"] == "https" && var.load_balancing_scheme == "INTERNAL_MANAGED" ? 1 : 0
+  project  = var.project_id
+  name     = "${var.name}-hc-https"
+  region   = var.region
+
 
   timeout_sec         = var.health_check["timeout_sec"]
   check_interval_sec  = var.health_check["check_interval_sec"]
